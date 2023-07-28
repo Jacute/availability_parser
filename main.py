@@ -95,7 +95,7 @@ class Parser:
             else:  # Для сумок
                 new_article = prefix + '_' + article
                 btn = self.driver.find_element(By.CLASS_NAME, 'item.button.fluid')
-                if btn.get_attribute('data-not-added-text'):
+                if 'Dodaj' not in btn.text:
                     result[new_article] = [AVIABLE["no_aviable"], self.get_price(price)]
                 else:
                     result[new_article] = [AVIABLE["aviable"], self.get_price(price)]
