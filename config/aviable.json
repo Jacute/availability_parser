@@ -1,23 +1,31 @@
-{"H&M":{
-        "aviable": 2,
-        "coming_soon": 0,
-        "few_items": 1,
-        "no_aviable": 0,
-        "stock_name": "H&M (1020000137714000)"
+{
+        "H&M":{
+                "aviable": 3,
+                "coming_soon": 0,
+                "few_items": 1,
+                "no_aviable": 0,
+                "stock_name": "H&M (1020000137714000)"
         },
-"COS":{
-        "aviable": 2,
-        "coming_soon": 0,
-        "few_items": 1,
-        "no_aviable": 0,
-        "stock_name": "COS ARKET (1020000344602000)"
-        },
-"UNIQLO":{
-        "aviable": 2,
-        "coming_soon": 0,
-        "few_items": 1,
-        "no_aviable": 0,
-        "stock_name": "UNIQLO (1020000528700000)"
-        }
+        "COS":{
+                "aviable": 2,
+                "coming_soon": 0,
+                "few_items": 1,
+                "no_aviable": 0,
+                "stock_name": "COS ARKET (1020000344602000)"
+                },
+        "UNIQLO":{
+                "aviable": 2,
+                "coming_soon": 0,
+                "few_items": 1,
+                "no_aviable": 0,
+                "stock_name": "UNIQLO (1020000528700000)"
+                },
+        "ASOS":{
+                "aviable": 2,
+                "coming_soon": 0,
+                "few_items": 1,
+                "no_aviable": 0,
+                "stock_name": "ASOS"
+        }		
 }
 

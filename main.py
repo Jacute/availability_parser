@@ -6,10 +6,20 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.common.exceptions import NoSuchElementException, TimeoutException
 from selenium.webdriver.support.ui import WebDriverWait
+
+from bs4 import BeautifulSoup
+
+from webdriver_manager.chrome import ChromeDriverManager
+
 from datetime import datetime
 
 from config.config import *
 
+import urllib3
+from urllib3.exceptions import InsecureRequestWarning
+from requests.exceptions import RequestException
+from time import sleep
+import requests
 import json
 import re
 import os
@@ -18,13 +28,16 @@ import traceback
 import argparse
 
 
+USER_AGENT = 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:129.0) Gecko/20100101 Firefox/129.0'
+
+
 class Parser:
     def __init__(self):
         self.result = {}
         parser = argparse.ArgumentParser(description='Process some integers.')
         parser.add_argument('--headless', action='store_true', help='headless')
-        args = parser.parse_args()
-        if args.headless:
+        self.args = parser.parse_args()
+        if self.args.headless:
             self.driver = self.get_driver(True)
         else:
             self.driver = self.get_driver(False)
@@ -46,8 +59,9 @@ class Parser:
 
             # options.add_argument('--disable-dev-shm-usage')
             # options.add_argument('--no-sandbox')
-            service = Service(os.path.abspath("chromedriver") if os.name == 'posix' else os.path.abspath("chromedriver.exe"))
+            service = Service(WEBDRIVER_PATH)
             driver = webdriver.Chrome(
+                # service=Service(ChromeDriverManager().install()),
                 service=service,
                 options=options
             )
@@ -64,128 +78,145 @@ class Parser:
             sys.exit()
 
     def parseOne(self, prefix, article, size, length):
-        try:
-            if prefix == 'H&M':
-                url = f'https://www2.hm.com/pl_pl/productpage.{article}.html'
-                self.driver.get(url)
+        if prefix == 'H&M':
+            url = f'https://www2.hm.com/pl_pl/productpage.{article}.html'
+            self.driver.get(url)
 
-                prices = self.driver.find_element(By.ID, 'product-price').text.replace(',', '.').replace('PLN',
-                                                                                                         '').strip()
-                prices = re.findall(r'[0-9 ]+\.\d{2}', prices)
-                if len(prices) == 0:
-                    prices = re.findall(r'\d+', prices)
-                if len(prices) == 1:
+            pricesText = self.driver.find_element(By.ID, 'product-price').text.replace(',', '.').replace('PLN',
+                                                                                                        '').strip()
+            prices = re.findall(r'[0-9 ]+\.\d{2}', pricesText)
+            if len(prices) == 0:
+                prices = re.findall(r'\d+', prices)
+            if len(prices) == 1:
+                price = self.get_hm_price(prices[0].replace(' ', ''))
+                sale_price = ''
+            else:
+                if 'Cena dla Klubowiczów' in pricesText:
                     price = self.get_hm_price(prices[0].replace(' ', ''))
-                    sale_price = ''
+                    sale_price = self.get_hm_price(prices[1].replace(' ', ''))
                 else:
                     price = self.get_hm_price(prices[1].replace(' ', ''))
                     sale_price = self.get_hm_price(prices[0].replace(' ', ''))
-                if size:
-                    sizes = self.driver.find_elements(By.XPATH, '//hm-size-selector/ul/li/label')
-                    for elem in sizes:
-                        new_article = prefix + '_' + article + '_' + elem.text.split('\n')[0]
-                        if 'Zostało tylko kilka sztuk!' in elem.text:
-                            self.result[new_article] = [self.AVIABLE_HM["few_items"], price, sale_price]
-                        elif elem.get_attribute('aria-disabled') == 'true':
-                            self.result[new_article] = [self.AVIABLE_HM["no_aviable"], price, sale_price]
-                        else:
-                            self.result[new_article] = [self.AVIABLE_HM["aviable"], price, sale_price]
-                else:  # Для сумок
-                    new_article = prefix + '_' + article
-                    btn = self.driver.find_element(By.CLASS_NAME, 'item.button.fluid')
-                    if 'Dodaj' not in btn.text:
+            if size:
+                sizes = self.driver.find_elements(By.XPATH, '//hm-size-selector/ul/li/div/label')
+                for elem in sizes:
+                    new_article = prefix + '_' + article + '_' + elem.text.split('\n')[0].strip()
+                    if 'Zostało tylko kilka sztuk!' in elem.text:
+                        self.result[new_article] = [self.AVIABLE_HM["few_items"], price, sale_price]
+                    elif elem.get_attribute('aria-disabled') == 'true':
                         self.result[new_article] = [self.AVIABLE_HM["no_aviable"], price, sale_price]
                     else:
                         self.result[new_article] = [self.AVIABLE_HM["aviable"], price, sale_price]
-            elif prefix == 'COS':
-                url = f'https://www.cos.com/en_eur/women/womenswear/t-shirts/product.the-full-volume-t-shirt-green.{article}.html'
-                self.driver.get(url)
+            else:  # Для сумок
+                new_article = prefix + '_' + article
+                btn = self.driver.find_element(By.CLASS_NAME, 'item.button.fluid')
+                if 'Dodaj' not in btn.text:
+                    self.result[new_article] = [self.AVIABLE_HM["no_aviable"], price, sale_price]
+                else:
+                    self.result[new_article] = [self.AVIABLE_HM["aviable"], price, sale_price]
+        elif prefix == 'COS':
+            url = f'https://www.cos.com/en_eur/women/womenswear/t-shirts/product.the-full-volume-t-shirt-green.{article}.html'
+            self.driver.get(url)
 
-                eur_prices = self.driver.find_element(By.XPATH, '//div[@class="price parbase"]').text.replace('€',
-                                                                                                              '').replace(
-                    ',', '.').strip()
-                eur_prices = re.findall(r'\d+\.\d{2}', eur_prices)
-                if len(eur_prices) == 1:
-                    price = self.get_cos_price(eur_prices[0])
-                    sale_price = ''
+            eur_prices = self.driver.find_element(By.XPATH, '//div[@class="price parbase"]').text.replace('€',
+                                                                                                            '').replace(
+                ',', '.').strip()
+            eur_prices = re.findall(r'\d+\.\d{2}', eur_prices)
+            if len(eur_prices) == 1:
+                price = self.get_cos_price(eur_prices[0])
+                sale_price = ''
+            else:
+                price = self.get_cos_price(eur_prices[0])
+                sale_price = self.get_cos_price(eur_prices[1])
+            if size:
+                sizes = self.driver.find_elements(By.XPATH, '//div[@class="size-container"]/button')
+                for elem in sizes:
+                    new_article = prefix + '_' + article + '_' + elem.text.split('\n')[0]
+                    if 'out-of-stock' in elem.get_attribute('class'):
+                        self.result[new_article] = [self.AVIABLE_COS['no_aviable'], price, sale_price]
+                    elif 'low-in-stock-size' in elem.get_attribute('class'):
+                        self.result[new_article] = [self.AVIABLE_COS["few_items"], price, sale_price]
+                    else:
+                        self.result[new_article] = [self.AVIABLE_COS["aviable"], price, sale_price]
+            else:
+                pass
+        elif prefix == 'ASOS':
+            r = self.make_request(f'https://www.asos.com/search/?q={article}', headers={'User-Agent': USER_AGENT}, cookies={'browseCountry': 'EE', 'browseCurrency': 'EUR'})
+            
+            productData = re.search(r'window.asos.pdp.config.product = {(.+)};', r.text)
+            productData = json.loads('{' + productData.group(1) + '}')
+            id = productData["id"]
+            idSize = {}
+            for variant in productData["variants"]:
+                idSize[variant["variantId"]] = variant["size"]
+            price_response = self.make_request(f'https://www.asos.com/api/product/catalogue/v4/stockprice?productIds={id}&store=PL&currency=EUR&keyStoreDataversion=11a1qu9-40&country=PL')
+            price_info = price_response.json()
+            for variant in price_info[0]["variants"]:
+                id = variant["id"]
+                is_in_stock = variant["isInStock"]
+                price = self.get_cos_price(variant["price"]["previous"]["value"])
+                sale_price = self.get_cos_price(variant["price"]["current"]["value"])
+                if price == sale_price:
+                    sale_price = None
+
+                new_article = prefix + '_' + article + '_' + size
+                if is_in_stock:
+                    self.result[new_article] = [self.AVIABLE_ASOS["aviable"], price, sale_price]
                 else:
-                    price = self.get_cos_price(eur_prices[0])
-                    sale_price = self.get_cos_price(eur_prices[1])
-                if size:
-                    sizes = self.driver.find_elements(By.XPATH, '//div[@class="size-container"]/button')
-                    for elem in sizes:
-                        new_article = prefix + '_' + article + '_' + elem.text.split('\n')[0]
-                        if 'out-of-stock' in elem.get_attribute('class'):
-                            self.result[new_article] = [self.AVIABLE_COS['no_aviable'], price, sale_price]
-                        elif 'low-in-stock-size' in elem.get_attribute('class'):
-                            self.result[new_article] = [self.AVIABLE_COS["few_items"], price, sale_price]
-                        else:
-                            self.result[new_article] = [self.AVIABLE_COS["aviable"], price, sale_price]
-                else:
+                    self.result[new_article] = [self.AVIABLE_ASOS["no_aviable"], price, sale_price]
+        elif prefix == 'UNIQLO':
+            host = 'https://www.uniqlo.com'
+            
+            res = self.make_request(f'{host}/eu/en_AT/search?q={article}', headers={'User-Agent': USER_AGENT})
+            soup = BeautifulSoup(res.text, 'lxml')
+
+            colors = [j.get('data-replaceurl') for j in
+                        soup.find_all('button', {'data-attr-name': "color"})]
+            for j in colors:
+                res = self.make_request(j, headers={'User-Agent': USER_AGENT})
+                soup = BeautifulSoup(res.text, 'lxml')
+                price = soup.find('span', {'class': 'price-standard'}).text.strip().lstrip('€ ').replace(',', '.')
+                sale_price = soup.find('span', {'data-ta-id': 'productvariantcontentPrice'}).text.strip().lstrip('€ ').replace(',', '.')
+
+                price = self.get_cos_price(price)
+                sale_price = self.get_cos_price(sale_price)
+
+                color = soup.find('b').text
+                if not size:  # сумки
                     pass
-            elif prefix == 'UNIQLO':
-                url = f'https://www.uniqlo.com/eu/en/asearch?q={article}'
-                self.driver.get(url)
-
-                if self.check_exists_by_xpath(self.driver, '//p[@class="noSearchResult__title"]'):
-                    return
-                url = self.driver.find_element(By.CSS_SELECTOR, '.productTile__link').get_attribute('href')
-                self.driver.get(url)
-                colors = [j.get_attribute('data-replaceurl') for j in
-                          self.driver.find_elements(By.XPATH, '//div[@class="swatchBox swatchBox--color "]/button')]
-                for j in colors:
-                    self.driver.get(j)
-                    prices = list(map(float, self.driver.find_element(By.CSS_SELECTOR,
-                                                                      '.productvariantcontent__price.js_pdpPrice').text.replace(
-                        ' €', '').strip().split()))
-                    if len(prices) > 1:
-                        sale_price = min(prices)
-                        sale_price = self.get_cos_price(sale_price)
-                    else:
-                        sale_price = None
-
-                    price = max(prices)
-                    price = self.get_cos_price(price)
-
-                    color = self.driver.find_element(By.CLASS_NAME, 'js-color').text
-
-                    if not size:  # сумки
-                        pass
-                    else:
-                        sizes = self.driver.find_elements(By.CSS_SELECTOR, '.swatch.swatch--size')
-                        if size:
-                            for size in sizes:
-                                if length:  # брюки
-                                    lengths = self.driver.find_elements(By.CSS_SELECTOR, '.swatch.swatch--length')
-                                    for length in lengths:
-                                        new_article = prefix + '_' + article + '_' + color + '_' + size.text + '_' + length.text
-                                        if 'swatch--noStock' in length.get_attribute(
-                                                'class') or 'swatch--noStock' in size.get_attribute('class'):
-                                            self.result[new_article] = [self.AVIABLE_UNIQLO['no_aviable'], price, sale_price]
-                                        else:
-                                            self.result[new_article] = [self.AVIABLE_UNIQLO['aviable'], price, sale_price]
-                                else:  # остальное
-                                    new_article = prefix + '_' + article + '_' + color + '_' + size.text
-                                    if 'swatch--noStock' in size.get_attribute('class'):
+                else:
+                    sizes = soup.find_all('button', {'class': 'swatch--size'})
+                    if size:
+                        for size_elem in sizes:
+                            new_size = size_elem.text.strip()
+                            if length:  # брюки
+                                lengths = soup.find_all('button', {'class': '.swatch--length'})
+                                for length_elem in lengths:
+                                    new_length = length_elem.text.strip()
+                                    new_article = prefix + '_' + article + '_' + color + '_' + new_size + '_' + new_length
+                                    if 'swatch--noStock' in length_elem.get('class') or 'swatch--noStock' in new_size.get('class'):
                                         self.result[new_article] = [self.AVIABLE_UNIQLO['no_aviable'], price, sale_price]
                                     else:
                                         self.result[new_article] = [self.AVIABLE_UNIQLO['aviable'], price, sale_price]
-                        else:  # сумки
-                            new_article = prefix + '_' + article + '_' + color
-                            aviable = self.driver.find_element(By.CSS_SELECTOR, '.swatch.swatch--size')
-                            if 'swatch--noStock' in aviable.get_attribute('class'):
-                                self.result[new_article] = [self.AVIABLE_UNIQLO['no_aviable'], price, sale_price]
-                            else:
-                                self.result[new_article] = [self.AVIABLE_UNIQLO['aviable'], price, sale_price]
-        except TimeoutException:
-            pass
-        except Exception:
-            self.writeLog()
+                            else:  # остальное
+                                new_article = prefix + '_' + article + '_' + color + '_' + new_size
+                                if 'swatch--noStock' in size_elem.get('class'):
+                                    self.result[new_article] = [self.AVIABLE_UNIQLO['no_aviable'], price, sale_price]
+                                else:
+                                    self.result[new_article] = [self.AVIABLE_UNIQLO['aviable'], price, sale_price]
+                    else:  # сумки
+                        new_article = prefix + '_' + article + '_' + color
+                        aviable = soup.find('button', {'class': 'swatch--size'})
+                        if 'swatch--noStock' in aviable.get('class'):
+                            self.result[new_article] = [self.AVIABLE_UNIQLO['no_aviable'], price, sale_price]
+                        else:
+                            self.result[new_article] = [self.AVIABLE_UNIQLO['aviable'], price, sale_price]
 
     def parse(self, articles):
         parsed_articles = []
+        parse_brands = ['H&M', 'COS', 'UNIQLO', 'ASOS']
         for i in articles:
-            print(f'{articles.index(i) + 1} of {len(articles)}')
+            print(f'{articles.index(i) + 1} of {len(articles)}. Article: {i}')
 
             parts_of_article = i.split('_')
             if parts_of_article[0] == 'UNIQLO':
@@ -209,11 +240,17 @@ class Parser:
                 else:
                     print(i)
                     raise Exception('Article has less than 3 parts')
-            if (prefix != 'H&M' and prefix != 'COS' and prefix != 'UNIQLO') or i in parsed_articles:
+            if (prefix not in parse_brands) or i in parsed_articles:
                 continue
 
             parsed_articles.append(i)
-            self.parseOne(prefix, article, size, length)
+            try:
+                self.parseOne(prefix, article, size, length)
+            except TimeoutException:
+                pass
+            except Exception:
+                self.driver.refresh()
+                self.writeLog()
 
         return self.result
 
@@ -242,6 +279,24 @@ class Parser:
         final_price = (final_price // 100 + 1) * 100 - 10
         return final_price
 
+    def make_request(self, url, method='get', headers=None, cookies=None, files=None, retries=3, delay=1):
+        urllib3.disable_warnings(InsecureRequestWarning) # убираем предупреждения для невалидных https сертов
+        
+        for _ in range(retries + 1):
+            try:
+                if method == 'post':
+                    response = requests.post(url, headers=headers, cookies=cookies, files=files, verify=False)
+                else:
+                    response = requests.get(url, headers=headers, cookies=cookies)
+                response.raise_for_status()  # Бросает исключение для 4xx и 5xx кодов ответа
+                return response
+            except RequestException as e:
+                print(f"Error: {e}")
+                if _ < retries:
+                    print(f"Retrying in {delay} seconds...")
+                    sleep(delay)
+        return None  # Если все попытки завершились неудачей
+
     def save(self, result):
         wb = load_workbook(filename=f'templates/{TEMPLATE_NAME}')
         ws = wb['Остатки на складе']
@@ -263,6 +318,9 @@ class Parser:
                 elif ws['B' + str(i)].value[:6] == 'UNIQLO':
                     data_validation.add("A" + str(i))
                     ws.cell(row=i, column=1).value = self.AVIABLE_UNIQLO['stock_name']
+                elif ws['B' + str(i)].value[:4] == 'ASOS':
+                    data_validation.add("A" + str(i))
+                    ws.cell(row=i, column=1).value = self.AVIABLE_ASOS['stock_name']
                 try:
                     ws.cell(row=i, column=4).value = result[ws['B' + str(i)].value][0]
                     ws.cell(row=i, column=6).value = result[ws['B' + str(i)].value][1]
@@ -316,6 +374,7 @@ class Parser:
         self.AVIABLE_HM = self.settings['H&M']
         self.AVIABLE_COS = self.settings['COS']
         self.AVIABLE_UNIQLO = self.settings['UNIQLO']
+        self.AVIABLE_ASOS = self.settings['ASOS']
 
     def start(self):
         try:
