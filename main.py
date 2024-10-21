@@ -158,8 +158,12 @@ class Parser:
                 sale_price = self.get_cos_price(variant["price"]["current"]["value"])
                 if price == sale_price:
                     sale_price = None
-
+                size = idSize[id]
+                if size == 'No Size':
+                    size = ''
+                
                 new_article = prefix + '_' + article + '_' + size
+                print(new_article)
                 if is_in_stock:
                     self.result[new_article] = [self.AVIABLE_ASOS["aviable"], price, sale_price]
                 else:

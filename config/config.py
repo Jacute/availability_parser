@@ -1,5 +1,5 @@
 SAVE_XLSX_PATH = 'xlsx/'
-TEMPLATE_NAME = 'shoulder_bags_2024-09-04 22.54.18.600154_stock.xlsx'
+TEMPLATE_NAME = 'asos_example.xlsx'
 PRICE_TABLE = {
     "КУРС_USD_ЗЛОТЫ":"4.02",
     "КУРС_USD_RUB":"90.50",
@@ -17,4 +17,4 @@ PRICE_TABLE = {
     "ПРОЦЕНТЫ_ЭКВАЙРИНГ":"0.015"
 } 
 
-WEBDRIVER_PATH = 'chromedriver.exe'
+WEBDRIVER_PATH = './chromedriver'
